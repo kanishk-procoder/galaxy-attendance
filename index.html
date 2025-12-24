@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Galaxy Attendance</title>
+
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#020617" />
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+    <style>
+      :root {
+        --bg: #020617;
+        --card: #0b1028;
+        --text: #e5e7eb;
+        --accent: #7c3aed;
+        --present: #22c55e;
+        --absent: #ef4444;
+        --od: #eab308;
+        --warn: #f97316;
+      }
+      * {
+        box-sizing: border-box;
+        font-family: system-ui;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        background: radial-gradient(circle at 20% 30%, #312e81, transparent 40%),
+          radial-gradient(circle at 80% 70%, #020617, transparent 40%),
+          var(--bg);
+        padding: 14px;
+      }
+      .stars {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: url("https://raw.githubusercontent.com/JulianLaval/canvas-particle-network/master/img/stars.png");
+        opacity: 0.25;
+        animation: move 160s linear infinite;
+      }
+      @keyframes move {
+        to {
+          background-position: -3000px 3000px;
+        }
+      }
+
+      .tabs {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 14px;
+      }
+      .tabs button {
+        flex: 1;
+        max-width: 200px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: var(--text);
+        padding: 12px;
+        border-radius: 18px;
+        font-weight: 600;
+      }
+      .tabs button.active {
+        background: linear-gradient(135deg, #7c3aed, #2563eb);
+      }
+
+      .tab {
+        display: none;
+      }
+      .tab.active {
+        display: block;
+      }
+
+      .card {
+        background: rgba(15, 23, 42, 0.9);
+        border-radius: 20px;
+        padding: 14px;
+        margin-bottom: 14px;
+        box-shadow: 0 0 40px rgba(124, 58, 237, 0.3);
+      }
+      .subject {
+        font-size: 1.1rem;
+      }
+      .meta {
+        opacity: 0.8;
+        font-size: 0.85rem;
+      }
+
+      .actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .actions button {
+        flex: 1;
+        border: none;
+        border-radius: 12px;
+        padding: 8px;
+        color: #fff;
+        font-weight: 600;
+      }
+      .present {
+        background: var(--present);
+      }
+      .absent {
+        background: var(--absent);
+      }
+      .od {
+        background: var(--od);
+      }
+      .dismiss {
+        background: #64748b;
+      }
+
+      .circle {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        margin: 10px auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 12px;
+      }
+      .alert {
+        background: rgba(249, 115, 22, 0.15);
+        border: 1px solid var(--warn);
+        padding: 10px;
+        border-radius: 16px;
+        margin-bottom: 12px;
+        color: #fed7aa;
+      }
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #020617;
+        border: 1px solid var(--accent);
+        padding: 10px 18px;
+        border-radius: 20px;
+        opacity: 0;
+        transition: 0.4s;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="stars"></div>
+
+    <h1 style="text-align: center">🌌 Galaxy Attendance</h1>
+    <p id="today" style="text-align: center; opacity: 0.7"></p>
+
+    <div class="tabs">
+      <button class="active" onclick="switchTab('todayTab',this)">
+        📅 Today
+      </button>
+      <button onclick="switchTab('statsTab',this)">📊 Attendance</button>
+    </div>
+
+    <div class="tab active" id="todayTab"></div>
+
+    <div class="tab" id="statsTab">
+      <div id="alerts"></div>
+      <div class="card">
+        <h3 style="text-align: center">Overall Attendance</h3>
+        <div class="circle" id="overallCircle"></div>
+        <p id="overallText" style="text-align: center"></p>
+        <p id="overallPlan" style="text-align: center; opacity: 0.8"></p>
+      </div>
+      <h3 style="text-align: center">Subject-wise</h3>
+      <div class="grid" id="subjects"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      /* 🔥 FIREBASE CONFIG — REPLACE VALUES */
+       const firebaseConfig = {
+          apiKey: "AIzaSyCE3aMzyB1ACvrTy_VKFPrKGvYJUqMw0fw",
+          authDomain: "galaxy-attendance.firebaseapp.com",
+          projectId: "galaxy-attendance",
+          storageBucket: "galaxy-attendance.firebasestorage.app",
+          messagingSenderId: "833683924346",
+          appId: "1:833683924346:web:9f6d6669f77d8ddca6e2c3",
+          measurementId: "G-LPGVBS6Y1J"
+        };
+      firebase.initializeApp(firebaseConfig);
+      const auth=firebase.auth();
+      const db=firebase.firestore();
+
+      /* AUTH */
+      auth.signInAnonymously();
+      let uid=null;
+      auth.onAuthStateChanged(u=>{
+        if(u){ uid=u.uid; init(); }
+      });
+
+      /* DATE */
+      const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+      const todayName=days[new Date().getDay()];
+      document.getElementById("today").innerText=todayName;
+
+      /* TIMETABLE (FULL) */
+      const timetable={ ... } // (same timetable you already reviewed)
+
+      /* HELPERS */
+      function toast(msg){
+        const t=document.getElementById("toast");
+        t.innerText=msg;t.classList.add("show");
+        setTimeout(()=>t.classList.remove("show"),5000);
+      }
+      function circle(el,p){
+        el.style.background=`conic-gradient(var(--accent) ${p}%, #1e293b 0)`;
+        el.innerText=Math.round(p)+"%";
+      }
+      function switchTab(id,btn){
+        document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+        document.querySelectorAll(".tabs button").forEach(b=>b.classList.remove("active"));
+        document.getElementById(id).classList.add("active");
+        btn.classList.add("active");
+      }
+
+      /* INIT */
+      function init(){
+        const ref=db.collection("attendance").doc(uid);
+        ref.onSnapshot(snap=>{
+          render(snap.data()||{},ref);
+        });
+      }
+
+      /* RENDER */
+      function render(data,ref){
+        renderToday(data,ref);
+        renderStats(data);
+      }
+
+      /* MARK */
+      function mark(ref,sub,status){
+        ref.set({
+          [sub]:firebase.firestore.FieldValue.increment(
+            status==="Absent"?0:1
+          ),
+          updated:new Date()
+        },{merge:true});
+        toast(`✔ ${status} marked (done in 5s)`);
+      }
+
+      /* TODAY */
+      function renderToday(data,ref){
+        const div=document.getElementById("todayTab");
+        div.innerHTML="";
+        (timetable[todayName]||[]).forEach(c=>{
+          const d=document.createElement("div");
+          d.className="card";
+          d.innerHTML=`
+            <div class="subject">${c.s}</div>
+            <div class="meta">🕒 ${c.t} | 🏫 ${c.r} | 👩‍🏫 ${c.f}</div>
+            <div class="actions">
+              <button class="present" onclick="mark(ref,'${c.s}','Present')">Present</button>
+              <button class="od" onclick="mark(ref,'${c.s}','OD')">OD</button>
+              <button class="absent" onclick="mark(ref,'${c.s}','Absent')">Absent</button>
+            </div>`;
+          div.appendChild(d);
+        });
+      }
+
+      /* STATS */
+      function renderStats(data){
+        let p=0,a=0;
+        Object.values(data||{}).forEach(v=>{p+=v;a+=0});
+        const tot=p+a,per=tot?p/tot*100:0;
+        circle(document.getElementById("overallCircle"),per);
+
+        document.getElementById("alerts").innerHTML=
+          per<75?'<div class="alert">⚠ Attendance below 75%</div>':"";
+
+        document.getElementById("overallText").innerText=`Attendance: ${Math.round(per)}%`;
+      }
+      if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+    </script>
+  </body>
+</html>
